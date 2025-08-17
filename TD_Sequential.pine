@@ -1,0 +1,118 @@
+//  Complete TD Sequential: Setup (1-9) + Bonus (10-13) following DeMark methodology.
+//    Features:
+//    ✓ Red/green triangles for buy/sell signals
+//    ✓ Clear floating numbers
+//    ✓ Setup 9 and Bonus 13 alerts
+//    ✓ Official DeMark logic
+//    For precise market reversal timing.
+//  Created by Forte11
+//  Follow on X: @Forte11Cuba @BTCAndres #ZoiTreider
+//  Article about this: https://demark.com/sequential-indicator/
+//  If you want invite me a coffe, please send Bitcoin on Lightning Network: forte11@lachispa.me  
+
+//@version=6
+indicator("TD Sequential Extended", shorttitle="TD913", overlay=true, max_labels_count=500, max_lines_count=500)
+
+// TD Sequential Setup and Bonus Logic
+// Setup: 9 consecutive closes less/greater than close[4]
+// Bonus: continues after Setup 9 using close[2] comparison
+
+// Lookback periods
+lookbackSetup = 4
+lookbackBonus = 2
+
+// Initialize counters
+var int buy_setup_count = 0
+var int sell_setup_count = 0
+var int buy_bonus_count = 0
+var int sell_bonus_count = 0
+var bool buy_setup_completed = false
+var bool sell_setup_completed = false
+
+// Setup Phase Logic
+if close < close[lookbackSetup]
+    buy_setup_count := buy_setup_count + 1
+    sell_setup_count := 0
+    sell_setup_completed := false
+    if buy_setup_count > 9
+        buy_setup_completed := true
+else
+    buy_setup_count := 0
+    buy_setup_completed := false
+    buy_bonus_count := 0
+
+if close > close[lookbackSetup]
+    sell_setup_count := sell_setup_count + 1
+    buy_setup_count := 0
+    buy_setup_completed := false
+    if sell_setup_count > 9
+        sell_setup_completed := true
+else
+    sell_setup_count := 0
+    sell_setup_completed := false
+    sell_bonus_count := 0
+
+// Bonus Phase Logic (starts after Setup 9)
+if buy_setup_completed and close < close[lookbackBonus]
+    buy_bonus_count := buy_bonus_count + 1
+else if buy_setup_completed and close >= close[lookbackBonus]
+    buy_bonus_count := 0
+
+if sell_setup_completed and close > close[lookbackBonus]
+    sell_bonus_count := sell_bonus_count + 1
+else if sell_setup_completed and close <= close[lookbackBonus]
+    sell_bonus_count := 0
+
+// Visual Display - Small Triangles + Numbers above
+
+// Small triangles with numbers on top
+
+// Small triangles overlapping bars (without numbers)
+plotshape(buy_setup_count >= 1 and buy_setup_count <= 9, 
+          style=shape.triangleup, location=location.belowbar, 
+          color=color.red, size=size.tiny)
+          
+plotshape(buy_bonus_count >= 1 and buy_bonus_count <= 4, 
+          style=shape.triangleup, location=location.belowbar, 
+          color=color.red, size=size.tiny)
+
+plotshape(sell_setup_count >= 1 and sell_setup_count <= 9, 
+          style=shape.triangledown, location=location.abovebar, 
+          color=color.green, size=size.tiny)
+          
+plotshape(sell_bonus_count >= 1 and sell_bonus_count <= 4, 
+          style=shape.triangledown, location=location.abovebar, 
+          color=color.green, size=size.tiny)
+
+// Numbers positioned by pixel distance from plotshapes
+
+// GREEN numbers: Si hay plotshape verde, busca HIGH de la vela, número 30 pixels ARRIBA
+if sell_setup_count >= 1 and sell_setup_count <= 9
+    label.new(bar_index, high + 2000, str.tostring(sell_setup_count), 
+              color=color.new(color.white, 100), textcolor=color.green, 
+              style=label.style_none, size=size.small)
+
+if sell_bonus_count >= 1 and sell_bonus_count <= 4
+    bonus_number = sell_bonus_count + 9
+    label.new(bar_index, high + 2000, str.tostring(bonus_number), 
+              color=color.new(color.white, 100), textcolor=color.green, 
+              style=label.style_none, size=size.small)
+
+// RED numbers: Si hay plotshape rojo, busca LOW de la vela, número 30 pixels ABAJO  
+if buy_setup_count >= 1 and buy_setup_count <= 9
+    label.new(bar_index, low - 2000, str.tostring(buy_setup_count), 
+              color=color.new(color.white, 100), textcolor=color.red, 
+              style=label.style_none, size=size.small)
+
+if buy_bonus_count >= 1 and buy_bonus_count <= 4
+    bonus_number = buy_bonus_count + 9
+    label.new(bar_index, low - 2000, str.tostring(bonus_number), 
+              color=color.new(color.white, 100), textcolor=color.red, 
+              style=label.style_none, size=size.small)
+
+
+// Alerts
+alertcondition(buy_setup_count == 9, title="TD Sequential Buy Setup 9", message="TD Sequential Buy Setup 9 completed")
+alertcondition(sell_setup_count == 9, title="TD Sequential Sell Setup 9", message="TD Sequential Sell Setup 9 completed")
+alertcondition(buy_bonus_count == 4, title="TD Sequential Buy 13", message="TD Sequential Buy 13 completed")
+alertcondition(sell_bonus_count == 4, title="TD Sequential Sell 13", message="TD Sequential Sell 13 completed")
