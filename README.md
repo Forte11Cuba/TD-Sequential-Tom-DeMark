@@ -65,7 +65,7 @@ Open source - feel free to modify and improve
 
 Created by Forte11, inspired by BTC Andres
 - Educational implementation of DeMark's methodology
-- Follow: x.com/Forte11Cuba x.com/BTCAndres #ZoiTreider
+- Follow: https://x.com/Forte11Cuba https://x.com/BTCAndres #ZoiTreider
 - No financial advice intended
 
 ---
