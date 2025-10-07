@@ -1,3 +1,12 @@
+//  Created by Forte11
+//  Follow on X: @Forte11Cuba @BTCAndres #ZoiTreider
+//  Article about this: https://demark.com/sequential-indicator/
+//
+//  If you want invite me a coffe, please send Bitcoin on Lightning Network:  
+//  forte11@lachispa.me
+//  forte11@lachispa.me
+//  forte11@lachispa.me
+//
 //  Complete TD Sequential: Setup (1-9) + Countdown (1-13) following official DeMark methodology.
 //    Features:
 //    ✓ TD Setup Phase with Perfected Setup validation
@@ -10,10 +19,7 @@
 //    ✓ Countdown Recycling
 //    ✓ Official DeMark Sequential logic
 //    For precise market reversal timing.
-//  Created by Forte11
-//  Follow on X: @Forte11Cuba @BTCAndres #ZoiTreider
-//  Article about this: https://demark.com/sequential-indicator/
-//  If you want invite me a coffe, please send Bitcoin on Lightning Network: forte11@lachispa.me 
+
 
 //@version=6
 indicator("TD Sequential - Official DeMark", shorttitle="TD Seq", overlay=true, max_labels_count=500, max_lines_count=500, max_bars_back=5000)
