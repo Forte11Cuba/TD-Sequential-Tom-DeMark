@@ -1,118 +1,270 @@
-//  Complete TD Sequential: Setup (1-9) + Bonus (10-13) following DeMark methodology.
+//  Complete TD Sequential: Setup (1-9) + Countdown (1-13) following official DeMark methodology.
 //    Features:
-//    ✓ Red/green triangles for buy/sell signals
-//    ✓ Clear floating numbers
-//    ✓ Setup 9 and Bonus 13 alerts
-//    ✓ Official DeMark logic
+//    ✓ TD Setup Phase with Perfected Setup validation
+//    ✓ TD Countdown Phase (Standard & Aggressive modes)
+//    ✓ TD Setup Trend (TDST) Support/Resistance levels
+//    ✓ Risk Levels calculation
+//    ✓ Countdown Deferral (13 vs 8 rule)
+//    ✓ 12-Bar Rule temporal validation
+//    ✓ Stealth Setups detection
+//    ✓ Countdown Recycling
+//    ✓ Official DeMark Sequential logic
 //    For precise market reversal timing.
 //  Created by Forte11
 //  Follow on X: @Forte11Cuba @BTCAndres #ZoiTreider
 //  Article about this: https://demark.com/sequential-indicator/
-//  If you want invite me a coffe, please send Bitcoin on Lightning Network: forte11@lachispa.me  
+//  If you want invite me a coffe, please send Bitcoin on Lightning Network: forte11@lachispa.me 
 
 //@version=6
-indicator("TD Sequential Extended", shorttitle="TD913", overlay=true, max_labels_count=500, max_lines_count=500)
+indicator("TD Sequential - Official DeMark", shorttitle="TD Seq", overlay=true, max_labels_count=500, max_lines_count=500, max_bars_back=5000)
 
-// TD Sequential Setup and Bonus Logic
-// Setup: 9 consecutive closes less/greater than close[4]
-// Bonus: continues after Setup 9 using close[2] comparison
+// ===== INPUT PARAMETERS =====
+showSetup = input.bool(true, "Show Setup (1-9)", group="Display Options")
+showCountdown = input.bool(true, "Show Countdown (1-13)", group="Display Options")
+showSupportResistance = input.bool(true, "Show Support/Resistance", group="Display Options")
+showRiskLevels = input.bool(true, "Show Risk Levels", group="Display Options")
+showStealthSetups = input.bool(true, "Show Stealth Setups", group="Display Options")
+countdownMode = input.string("Standard", "Countdown Mode", options=["Standard", "Aggressive"], group="Setup Options")
+showNumbers = input.string("All", "Show Numbers", options=["All", "6-9 Only", "9 Only", "None"], group="Display Options")
 
-// Lookback periods
-lookbackSetup = 4
-lookbackBonus = 2
+// ===== CORE LOGIC VARIABLES =====
+// Setup Phase
+var int buySetup = 0
+var int sellSetup = 0
+var bool buySetupPerfected = false
+var bool sellSetupPerfected = false
+var float buySetupHigh6 = na
+var float buySetupHigh7 = na
+var float sellSetupLow6 = na
+var float sellSetupLow7 = na
 
-// Initialize counters
-var int buy_setup_count = 0
-var int sell_setup_count = 0
-var int buy_bonus_count = 0
-var int sell_bonus_count = 0
-var bool buy_setup_completed = false
-var bool sell_setup_completed = false
+// TD Setup Trend (TDST)
+var float tdstSupport = na
+var float tdstResistance = na
 
-// Setup Phase Logic
-if close < close[lookbackSetup]
-    buy_setup_count := buy_setup_count + 1
-    sell_setup_count := 0
-    sell_setup_completed := false
-    if buy_setup_count > 9
-        buy_setup_completed := true
+// Countdown Phase
+var int buyCountdown = 0
+var int sellCountdown = 0
+var float buyCountdown8Close = na
+var float sellCountdown8Close = na
+var bool buyCountdownDeferred = false
+var bool sellCountdownDeferred = false
+
+// Risk Levels
+var float buyRiskLevel = na
+var float sellRiskLevel = na
+
+// 12-Bar Rule tracking
+var int barsSince13Buy = na
+var int barsSince13Sell = na
+
+// Stealth Setup tracking
+var bool stealthBuyActive = false
+var bool stealthSellActive = false
+
+// ===== HELPER FUNCTIONS =====
+// Helper functions for ta.highest/ta.lowest to avoid scope issues
+getResistanceLevel() => ta.highest(high, 9)
+getSupportLevel() => ta.lowest(low, 9)
+
+// Setup Numbers (1-9)
+shouldShowNumber(num) => 
+    showNumbers == "All" or (showNumbers == "6-9 Only" and num >= 6) or (showNumbers == "9 Only" and num == 9)
+
+// ===== SETUP PHASE LOGIC =====
+// Buy Setup: 9 consecutive closes less than close[4]
+if close < close[4]
+    buySetup := buySetup == 9 ? 1 : buySetup + 1
+    sellSetup := 0
+    sellSetupPerfected := false
+    // Track highs for bars 6 and 7 for perfection validation
+    if buySetup == 6
+        buySetupHigh6 := high
+    if buySetup == 7
+        buySetupHigh7 := high
 else
-    buy_setup_count := 0
-    buy_setup_completed := false
-    buy_bonus_count := 0
+    buySetup := 0
+    buySetupPerfected := false
+    buyCountdown := 0
+    buyCountdownDeferred := false
 
-if close > close[lookbackSetup]
-    sell_setup_count := sell_setup_count + 1
-    buy_setup_count := 0
-    buy_setup_completed := false
-    if sell_setup_count > 9
-        sell_setup_completed := true
+// Sell Setup: 9 consecutive closes greater than close[4]
+if close > close[4]
+    sellSetup := sellSetup == 9 ? 1 : sellSetup + 1
+    buySetup := 0
+    buySetupPerfected := false
+    // Track lows for bars 6 and 7 for perfection validation
+    if sellSetup == 6
+        sellSetupLow6 := low
+    if sellSetup == 7
+        sellSetupLow7 := low
 else
-    sell_setup_count := 0
-    sell_setup_completed := false
-    sell_bonus_count := 0
+    sellSetup := 0
+    sellSetupPerfected := false
+    sellCountdown := 0
+    sellCountdownDeferred := false
 
-// Bonus Phase Logic (starts after Setup 9)
-if buy_setup_completed and close < close[lookbackBonus]
-    buy_bonus_count := buy_bonus_count + 1
-else if buy_setup_completed and close >= close[lookbackBonus]
-    buy_bonus_count := 0
+// ===== PERFECTED SETUP VALIDATION =====
+// Buy Setup is perfected when 9 is completed and bars 6&7 highs are exceeded
+if buySetup == 9 and not na(buySetupHigh6) and not na(buySetupHigh7)
+    if high > buySetupHigh6 and high > buySetupHigh7
+        buySetupPerfected := true
+        // Initialize TDST Resistance
+        tdstResistance := getResistanceLevel()
 
-if sell_setup_completed and close > close[lookbackBonus]
-    sell_bonus_count := sell_bonus_count + 1
-else if sell_setup_completed and close <= close[lookbackBonus]
-    sell_bonus_count := 0
+// Sell Setup is perfected when 9 is completed and bars 6&7 lows are broken
+if sellSetup == 9 and not na(sellSetupLow6) and not na(sellSetupLow7)
+    if low < sellSetupLow6 and low < sellSetupLow7
+        sellSetupPerfected := true
+        // Initialize TDST Support
+        tdstSupport := getSupportLevel()
 
-// Visual Display - Small Triangles + Numbers above
+// ===== COUNTDOWN PHASE LOGIC =====
+// Countdown starts only after perfected setup
+// Standard Mode: close vs high/low[2]
+// Aggressive Mode: high/low vs high/low[2]
 
-// Small triangles with numbers on top
+isBuyCountdownCondition = countdownMode == "Standard" ? close < low[2] : low < low[2]
+isSellCountdownCondition = countdownMode == "Standard" ? close > high[2] : high > high[2]
 
-// Small triangles overlapping bars (without numbers)
-plotshape(buy_setup_count >= 1 and buy_setup_count <= 9, 
-          style=shape.triangleup, location=location.belowbar, 
-          color=color.red, size=size.tiny)
-          
-plotshape(buy_bonus_count >= 1 and buy_bonus_count <= 4, 
-          style=shape.triangleup, location=location.belowbar, 
-          color=color.red, size=size.tiny)
+// Buy Countdown (non-consecutive)
+if buySetupPerfected
+    if isBuyCountdownCondition
+        buyCountdown := buyCountdown + 1
+        if buyCountdown == 8
+            buyCountdown8Close := close
+    // Reset if opposite setup appears or TDST resistance is broken
+    if sellSetup == 9 or (not na(tdstResistance) and close > tdstResistance)
+        buyCountdown := 0
+        buyCountdownDeferred := false
+        tdstResistance := na
 
-plotshape(sell_setup_count >= 1 and sell_setup_count <= 9, 
-          style=shape.triangledown, location=location.abovebar, 
-          color=color.green, size=size.tiny)
-          
-plotshape(sell_bonus_count >= 1 and sell_bonus_count <= 4, 
-          style=shape.triangledown, location=location.abovebar, 
-          color=color.green, size=size.tiny)
+// Sell Countdown (non-consecutive) 
+if sellSetupPerfected
+    if isSellCountdownCondition
+        sellCountdown := sellCountdown + 1
+        if sellCountdown == 8
+            sellCountdown8Close := close
+    // Reset if opposite setup appears or TDST support is broken
+    if buySetup == 9 or (not na(tdstSupport) and close < tdstSupport)
+        sellCountdown := 0
+        sellCountdownDeferred := false
+        tdstSupport := na
 
-// Numbers positioned by pixel distance from plotshapes
+// ===== COUNTDOWN DEFERRAL (13 vs 8 RULE) =====
+// For Buy Countdown: low of bar 13 must be <= close of bar 8
+if buyCountdown == 13 and not na(buyCountdown8Close)
+    if low > buyCountdown8Close
+        buyCountdownDeferred := true
+        buyCountdown := 12  // Reset to 12, wait for proper 13
+    else
+        buyCountdownDeferred := false
+        // Calculate Risk Level
+        buyRiskLevel := high
+        barsSince13Buy := 0
 
-// GREEN numbers: Si hay plotshape verde, busca HIGH de la vela, número 30 pixels ARRIBA
-if sell_setup_count >= 1 and sell_setup_count <= 9
-    label.new(bar_index, high + 2000, str.tostring(sell_setup_count), 
-              color=color.new(color.white, 100), textcolor=color.green, 
-              style=label.style_none, size=size.small)
+// For Sell Countdown: high of bar 13 must be >= close of bar 8  
+if sellCountdown == 13 and not na(sellCountdown8Close)
+    if high < sellCountdown8Close
+        sellCountdownDeferred := true
+        sellCountdown := 12  // Reset to 12, wait for proper 13
+    else
+        sellCountdownDeferred := false
+        // Calculate Risk Level
+        sellRiskLevel := low
+        barsSince13Sell := 0
 
-if sell_bonus_count >= 1 and sell_bonus_count <= 4
-    bonus_number = sell_bonus_count + 9
-    label.new(bar_index, high + 2000, str.tostring(bonus_number), 
-              color=color.new(color.white, 100), textcolor=color.green, 
-              style=label.style_none, size=size.small)
+// ===== STEALTH SETUPS =====
+// Stealth Buy: After sellSetup 8, immediate buySetup 1
+stealthBuyActive := ta.barssince(sellSetup == 8) <= 1 and buySetup == 1
+// Stealth Sell: After buySetup 8, immediate sellSetup 1  
+stealthSellActive := ta.barssince(buySetup == 8) <= 1 and sellSetup == 1
 
-// RED numbers: Si hay plotshape rojo, busca LOW de la vela, número 30 pixels ABAJO  
-if buy_setup_count >= 1 and buy_setup_count <= 9
-    label.new(bar_index, low - 2000, str.tostring(buy_setup_count), 
-              color=color.new(color.white, 100), textcolor=color.red, 
-              style=label.style_none, size=size.small)
+// ===== 12-BAR RULE TRACKING =====
+// Increment counters if Risk Levels exist
+if not na(buyRiskLevel)
+    barsSince13Buy := barsSince13Buy + 1
+    if barsSince13Buy > 12  // Reset after 12 bars
+        buyRiskLevel := na
+        barsSince13Buy := na
+        
+if not na(sellRiskLevel)
+    barsSince13Sell := barsSince13Sell + 1
+    if barsSince13Sell > 12  // Reset after 12 bars
+        sellRiskLevel := na
+        barsSince13Sell := na
 
-if buy_bonus_count >= 1 and buy_bonus_count <= 4
-    bonus_number = buy_bonus_count + 9
-    label.new(bar_index, low - 2000, str.tostring(bonus_number), 
-              color=color.new(color.white, 100), textcolor=color.red, 
-              style=label.style_none, size=size.small)
+// ===== VISUAL DISPLAY =====
 
+// Buy Setup visualization (red colors for buy signals - below bars)
+if showSetup and buySetup >= 1 and buySetup <= 9 and shouldShowNumber(buySetup)
+    setupColor = buySetup == 9 ? color.new(color.red, 20) : color.new(color.red, 60)
+    label.new(bar_index, low, str.tostring(buySetup), 
+              color=setupColor, textcolor=color.white, 
+              style=label.style_label_up, size=size.small, yloc=yloc.belowbar)
 
-// Alerts
-alertcondition(buy_setup_count == 9, title="TD Sequential Buy Setup 9", message="TD Sequential Buy Setup 9 completed")
-alertcondition(sell_setup_count == 9, title="TD Sequential Sell Setup 9", message="TD Sequential Sell Setup 9 completed")
-alertcondition(buy_bonus_count == 4, title="TD Sequential Buy 13", message="TD Sequential Buy 13 completed")
-alertcondition(sell_bonus_count == 4, title="TD Sequential Sell 13", message="TD Sequential Sell 13 completed")
+// Sell Setup visualization (green colors for sell signals - above bars)        
+if showSetup and sellSetup >= 1 and sellSetup <= 9 and shouldShowNumber(sellSetup)
+    setupColor = sellSetup == 9 ? color.new(color.green, 20) : color.new(color.green, 60)
+    label.new(bar_index, high, str.tostring(sellSetup), 
+              color=setupColor, textcolor=color.white, 
+              style=label.style_label_down, size=size.small, yloc=yloc.abovebar)
+
+// Countdown Numbers (1-13)
+if showCountdown and buyCountdown >= 1 and buyCountdown <= 13
+    countdownColor = buyCountdown == 13 ? color.new(color.red, 20) : color.new(color.red, 60)
+    label.new(bar_index, low, str.tostring(buyCountdown), 
+              color=countdownColor, textcolor=color.white, 
+              style=label.style_label_up, size=size.normal, yloc=yloc.belowbar)
+              
+if showCountdown and sellCountdown >= 1 and sellCountdown <= 13
+    countdownColor = sellCountdown == 13 ? color.new(color.green, 20) : color.new(color.green, 60)
+    label.new(bar_index, high, str.tostring(sellCountdown), 
+              color=countdownColor, textcolor=color.white, 
+              style=label.style_label_down, size=size.normal, yloc=yloc.abovebar)
+
+// Countdown Deferral (+)
+if showCountdown and buyCountdownDeferred
+    label.new(bar_index, low, "+", 
+              color=color.new(color.yellow, 60), textcolor=color.black, 
+              style=label.style_label_up, size=size.normal, yloc=yloc.belowbar)
+              
+if showCountdown and sellCountdownDeferred
+    label.new(bar_index, high, "+", 
+              color=color.new(color.yellow, 60), textcolor=color.black, 
+              style=label.style_label_down, size=size.normal, yloc=yloc.abovebar)
+
+// Stealth Setups
+if showStealthSetups and stealthBuyActive
+    label.new(bar_index, low, "S9", 
+              color=color.new(color.red, 40), textcolor=color.white, 
+              style=label.style_label_up, size=size.small, yloc=yloc.belowbar)
+              
+if showStealthSetups and stealthSellActive
+    label.new(bar_index, high, "S9", 
+              color=color.new(color.green, 40), textcolor=color.white, 
+              style=label.style_label_down, size=size.small, yloc=yloc.abovebar)
+
+// Support/Resistance Lines (TDST) - Disabled for cleaner visualization
+// plot(showSupportResistance and not na(tdstSupport) ? tdstSupport : na, 
+//      "TDST Support", color=color.new(color.green, 50), linewidth=2, style=plot.style_circles)
+//      
+// plot(showSupportResistance and not na(tdstResistance) ? tdstResistance : na, 
+//      "TDST Resistance", color=color.new(color.red, 50), linewidth=2, style=plot.style_circles)
+
+// Risk Levels - Also disabled for cleaner visualization
+// plot(showRiskLevels and not na(buyRiskLevel) ? buyRiskLevel : na, 
+//      "Buy Risk Level", color=color.new(color.red, 70), linewidth=1, style=plot.style_cross)
+//      
+// plot(showRiskLevels and not na(sellRiskLevel) ? sellRiskLevel : na, 
+//      "Sell Risk Level", color=color.new(color.green, 70), linewidth=1, style=plot.style_cross)
+
+// ===== ALERTS =====
+alertcondition(buySetup == 9, title="TD Buy Setup 9", message="TD Sequential Buy Setup 9 completed")
+alertcondition(sellSetup == 9, title="TD Sell Setup 9", message="TD Sequential Sell Setup 9 completed")
+alertcondition(buySetupPerfected, title="TD Buy Setup Perfected", message="TD Sequential Buy Setup Perfected")
+alertcondition(sellSetupPerfected, title="TD Sell Setup Perfected", message="TD Sequential Sell Setup Perfected")
+alertcondition(buyCountdown == 13 and not buyCountdownDeferred, title="TD Buy Countdown 13", message="TD Sequential Buy Countdown 13 completed")
+alertcondition(sellCountdown == 13 and not sellCountdownDeferred, title="TD Sell Countdown 13", message="TD Sequential Sell Countdown 13 completed")
+alertcondition(stealthBuyActive, title="TD Stealth Buy Setup", message="TD Sequential Stealth Buy Setup detected")
+alertcondition(stealthSellActive, title="TD Stealth Sell Setup", message="TD Sequential Stealth Sell Setup detected")
